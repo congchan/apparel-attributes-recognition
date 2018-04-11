@@ -1,6 +1,6 @@
 import mxnet as mx
 import numpy as np
-import os, time, logging, math, argparse
+import os, time, logging, math, argparse, sys
 
 from mxnet import gluon, image, init, nd
 from mxnet import autograd as ag
@@ -10,9 +10,9 @@ from mxnet.gluon.model_zoo import vision as models
 def parse_args():
     parser = argparse.ArgumentParser(description='Gluon for FashionAI Competition',
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--task', required=True, type=str,
+    parser.add_argument('--task',  type=str, default='skirt_length_labels',
                         help='name of the classification task')
-    parser.add_argument('--model', required=True, type=str,
+    parser.add_argument('--model', type=str, default = 'resnet50_v2',
                         help='name of the pretrained model from model zoo.')
     parser.add_argument('-j', '--workers', dest='num_workers', default=4, type=int,
                         help='number of preprocessing workers')
@@ -36,6 +36,7 @@ def parse_args():
     return args
 
 def calculate_ap(labels, outputs):
+    '''# 计算 Average Precision'''
     cnt = 0
     ap = 0.
     for label, output in zip(labels, outputs):
@@ -71,6 +72,7 @@ def ten_crop(img, size):
     return (crops)
 
 def transform_train(data, label):
+    '''# 训练集图片增广'''
     im = data.astype('float32') / 255
     auglist = image.CreateAugmenter(data_shape=(3, 224, 224), resize=256,
                                     rand_crop=True, rand_mirror=True,
@@ -82,6 +84,7 @@ def transform_train(data, label):
     return (im, nd.array([label]).asscalar())
 
 def transform_val(data, label):
+    '''# 验证集图片增广，没有随机裁剪和翻转'''
     im = data.astype('float32') / 255
     im = image.resize_short(im, 256)
     im, _ = image.center_crop(im, (224, 224))
@@ -222,45 +225,48 @@ def predict(task):
         progressbar(cnt, n)
     f_out.close()
 
-# Preparation
-args = parse_args()
-
-task_list = {
-    'collar_design_labels': 5,
-    'skirt_length_labels': 6,
-    'lapel_design_labels': 5,
-    'neckline_design_labels': 10,
-    'coat_length_labels': 8,
-    'neck_design_labels': 5,
-    'pant_length_labels': 6,
-    'sleeve_length_labels': 9
-}
-task = args.task
-task_num_class = task_list[task]
-
-model_name = args.model
-
-epochs = args.epochs
-lr = args.lr
-batch_size = args.batch_size
-momentum = args.momentum
-wd = args.wd
-
-lr_factor = args.lr_factor
-lr_steps = [int(s) for s in args.lr_steps.split(',')] + [np.inf]
-
-num_gpus = args.num_gpus
-num_workers = args.num_workers
-ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
-batch_size = batch_size * max(num_gpus, 1)
-
-logging.basicConfig(level=logging.INFO,
-                    handlers = [
-                        logging.StreamHandler(),
-                        logging.FileHandler('training.log')
-                    ])
 
 if __name__ == "__main__":
+    # Preparation
+    args = parse_args()
+
+    logging.basicConfig(level=logging.INFO,
+                        handlers = [
+                            logging.StreamHandler(),
+                            logging.FileHandler('training.log')
+                        ])
+
+    task_list = {
+        'collar_design_labels': 5,
+        'skirt_length_labels': 6,
+        'lapel_design_labels': 5,
+        'neckline_design_labels': 10,
+        'coat_length_labels': 8,
+        'neck_design_labels': 5,
+        'pant_length_labels': 6,
+        'sleeve_length_labels': 9
+    }
+    task = args.task
+    task_num_class = task_list[task]
+
+    model_name = args.model
+
+    epochs = args.epochs
+    lr = args.lr
+    batch_size = args.batch_size
+    momentum = args.momentum
+    wd = args.wd
+
+    lr_factor = args.lr_factor
+    lr_steps = [int(s) for s in args.lr_steps.split(',')] + [np.inf]
+
+    num_gpus = args.num_gpus
+    num_workers = args.num_workers
+    ctx = [mx.gpu(i) for i in range(num_gpus)] if num_gpus > 0 else [mx.cpu()]
+    logging.info('Use context {}'.format(ctx))
+    batch_size = batch_size * max(num_gpus, 1)
+
+
+
     net = train()
     predict(task)
-
