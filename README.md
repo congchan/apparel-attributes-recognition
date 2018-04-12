@@ -1,5 +1,13 @@
 # Gluon-FashionAI-Attributes
 
+## On cluster
+Debug, the #GPU should be aligned with batch size:  
+* `srun -p interactive --gres=gpu:2 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 2 --num-workers 32 --epochs 1`
+* `srun -p interactive --gres=gpu:4 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 4 --num_workers 32 --epochs 1 --batch-size 48`
+
+sbatch on `gpu_cluster_tutorial_training_script.sh`:  
+`python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 8 --num_workers 32 --epochs 40`
+
 这是为[阿里天池竞赛——服饰属性标签识别](https://tianchi.aliyun.com/competition/information.htm?spm=5176.100067.5678.2.505c3a26Oet3cf&raceId=231649)提供的`gluon`教程与benchmark代码。
 
 [gluon教程](FashionAI-Attributes-Skirt.ipynb)会从零开始一步步讲解，带你上手此次竞赛，同时也能帮助理解benchmark代码。
@@ -31,4 +39,3 @@ Gluon-FashionAI-Attributes
 4. 运行结束后，将`submission/submission.csv`压缩成`zip`格式并通过官网左侧的“提交结果”标签页提交。
 
 [吐槽和讨论请点这里](https://discuss.gluon.ai/t/topic/5353)
-
