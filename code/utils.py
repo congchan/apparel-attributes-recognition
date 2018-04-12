@@ -7,6 +7,7 @@ from mxnet.gluon import nn
 import mxnet as mx
 import numpy as np
 from time import time
+import sys
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
@@ -416,7 +417,7 @@ class Progbar(object):
         self.target = target
         self.sum_values = {}
         self.unique_values = []
-        self.start = time.time()
+        self.start = time()
         self.total_width = 0
         self.seen_so_far = 0
         self.verbose = verbose
@@ -447,7 +448,7 @@ class Progbar(object):
             self.sum_values[k] = [v, 1]
         self.seen_so_far = current
 
-        now = time.time()
+        now = time()
         if self.verbose == 1:
             prev_total_width = self.total_width
             sys.stdout.write("\b" * prev_total_width)

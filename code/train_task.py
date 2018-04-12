@@ -1,11 +1,12 @@
 import mxnet as mx
 import numpy as np
 import os, time, logging, math, argparse, sys
-
+from time import time
 from mxnet import gluon, image, init, nd
 from mxnet import autograd as ag
 from mxnet.gluon import nn
 from mxnet.gluon.model_zoo import vision as models
+from utils import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description='Gluon for FashionAI Competition',
@@ -14,7 +15,7 @@ def parse_args():
                         help='name of the classification task')
     parser.add_argument('--model', type=str, default = 'resnet50_v2',
                         help='name of the pretrained model from model zoo.')
-    parser.add_argument('-j', '--workers', dest='num_workers', default=4, type=int,
+    parser.add_argument('-j', '--num_workers', dest='num_workers', default=4, type=int,
                         help='number of preprocessing workers')
     parser.add_argument('--num-gpus', default=0, type=int,
                         help='number of gpus to use, 0 indicates cpu only')
@@ -157,6 +158,7 @@ def train():
     L = gluon.loss.SoftmaxCrossEntropyLoss()
     lr_counter = 0
     num_batch = len(train_data)
+    prog = Progbar(target=num_batch)
 
     # Start Training
     for epoch in range(epochs):
@@ -164,7 +166,7 @@ def train():
             trainer.set_learning_rate(trainer.learning_rate*lr_factor)
             lr_counter += 1
 
-        tic = time.time()
+        tic = time()
         train_loss = 0
         metric.reset()
         AP = 0.
@@ -187,7 +189,8 @@ def train():
             AP += ap
             AP_cnt += cnt
 
-            progressbar(i, num_batch-1)
+            # progressbar(i, num_batch-1)
+            prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
@@ -196,7 +199,7 @@ def train():
         val_acc, val_map, val_loss = validate(finetune_net, val_data, ctx)
 
         logging.info('[Epoch %d] Train-acc: %.3f, mAP: %.3f, loss: %.3f | Val-acc: %.3f, mAP: %.3f, loss: %.3f | time: %.1f' %
-                 (epoch, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time.time() - tic))
+                 (epoch, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time() - tic))
 
     logging.info('\n')
     return (finetune_net)
