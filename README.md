@@ -1,12 +1,22 @@
 # Gluon-FashionAI-Attributes
 
 ## On cluster
-Debug, the #GPU should be aligned with batch size:  
-* `srun -p interactive --gres=gpu:2 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 2 --num-workers 32 --epochs 1`
-* `srun -p interactive --gres=gpu:4 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 4 --num_workers 32 --epochs 1 --batch-size 48`
+### Debug
+The `--num-gpus #` should be less than `--gres=gpu:#` aligned with batch size:  
+* `srun -p interactive --gres=gpu:2 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 2 --num_workers 32 --epochs 1 --batch-size 8`
+* `srun -p interactive --gres=gpu:4 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 4 --num_workers 32 --epochs 1 --batch-size 45`
 
-sbatch on `gpu_cluster_tutorial_training_script.sh`:  
-`python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 8 --num_workers 32 --epochs 40`
+### Sbatch
+`python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 8 --num_workers 32 --epochs 40 --batch-size 45`
+
+### copy data to cluster
+On cluster: `cp -ar /afs/inf.ed.ac.uk/user/<initial>/<username>/from/* /home/<username>/to`
+
+On DICE machine: `scp -r from mlp1:/home/<username>/to`
+
+### Syncing or copying data over to DICE
+1. `scp -r mlp1:/home/<username>/output output`
+2. selectively sync only new files. ```rsync -ua --progress mlp1:/home/<username>/project_dir target_dir```. The option -u updates only changed files, -a will pack the files before sending and --progress will give you a progress bar that shows what is being sent and how fast.
 
 这是为[阿里天池竞赛——服饰属性标签识别](https://tianchi.aliyun.com/competition/information.htm?spm=5176.100067.5678.2.505c3a26Oet3cf&raceId=231649)提供的`gluon`教程与benchmark代码。
 
