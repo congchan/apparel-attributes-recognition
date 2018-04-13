@@ -7,7 +7,7 @@ from mxnet.gluon import nn
 import mxnet as mx
 import numpy as np
 from time import time
-import sys
+import sys, os
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 
@@ -505,3 +505,9 @@ class Progbar(object):
 
     def add(self, n, values=None):
         self.update(self.seen_so_far+n, values)
+
+def mkdir_if_not_exist(path):
+    make_path = os.path.join(*path)
+    if not os.path.exists(make_path):
+        os.makedirs(make_path)
+    return make_path
