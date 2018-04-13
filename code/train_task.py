@@ -13,6 +13,10 @@ def parse_args():
                                      formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--task',  type=str, default='skirt_length_labels',
                         help='name of the classification task')
+    parser.add_argument('--suffix',  type=str, default='',
+                        help='to distinguish different experiments')
+    parser.add_argument('--parameter',  type=str, default=None,
+                        help='the saved parameter file')
     parser.add_argument('--model', type=str, default = 'resnet50_v2',
                         help='name of the pretrained model from model zoo.')
     parser.add_argument('-j', '--num_workers', dest='num_workers', default=4, type=int,
@@ -21,6 +25,8 @@ def parse_args():
                         help='number of gpus to use, 0 indicates cpu only')
     parser.add_argument('--epochs', default=40, type=int,
                         help='number of training epochs')
+    parser.add_argument('--log_interval', default=0, type=int,
+                        help='log every # batches')
     parser.add_argument('-b', '--batch-size', default=64, type=int,
                         help='mini-batch size')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
@@ -33,11 +39,13 @@ def parse_args():
                         help='learning rate decay ratio')
     parser.add_argument('--lr-steps', default='10,20,30', type=str,
                         help='list of learning rate decay epochs as in str')
+    parser.add_argument('--best_val_acc', default=0.0, type=float,
+                        help='best validation accuracy at last run')
     args = parser.parse_args()
     return args
 
 def calculate_ap(labels, outputs):
-    '''# 计算 Average Precision'''
+    '''# compute Average Precision'''
     cnt = 0
     ap = 0.
     for label, output in zip(labels, outputs):
@@ -73,7 +81,7 @@ def ten_crop(img, size):
     return (crops)
 
 def transform_train(data, label):
-    '''# 训练集图片增广'''
+    '''# train data augmentation'''
     im = data.astype('float32') / 255
     auglist = image.CreateAugmenter(data_shape=(3, 224, 224), resize=256,
                                     rand_crop=True, rand_mirror=True,
@@ -85,7 +93,7 @@ def transform_train(data, label):
     return (im, nd.array([label]).asscalar())
 
 def transform_val(data, label):
-    '''# 验证集图片增广，没有随机裁剪和翻转'''
+    '''# val data augmentation, without random crop and rotation'''
     im = data.astype('float32') / 255
     im = image.resize_short(im, 256)
     im, _ = image.center_crop(im, (224, 224))
@@ -126,16 +134,57 @@ def validate(net, val_data, ctx):
     _, val_acc = metric.get()
     return ((val_acc, AP / AP_cnt, val_loss / len(val_data)))
 
+def predict(task):
+    logging.info('Training Finished. Starting Prediction.\n')
+    f_out = open('submission/%s.csv'%(task), 'w')
+    with open('data/rank/Tests/question.csv', 'r') as f_in:
+        lines = f_in.readlines()
+    tokens = [l.rstrip().split(',') for l in lines]
+    task_tokens = [t for t in tokens if t[1] == task]
+    n = len(task_tokens)
+    cnt = 0
+    for path, task, _ in task_tokens:
+        img_path = os.path.join('data/rank', path)
+        with open(img_path, 'rb') as f:
+            img = image.imdecode(f.read())
+        data = transform_predict(img)
+        out = net(data.as_in_context(ctx[0]))
+        out = nd.SoftmaxActivation(out).mean(axis=0)
+
+        pred_out = ';'.join(["%.8f"%(o) for o in out.asnumpy().tolist()])
+        line_out = ','.join([path, task, pred_out])
+        f_out.write(line_out + '\n')
+        cnt += 1
+        progressbar(cnt, n)
+    f_out.close()
+
 def train():
-    logging.info('Start Training for Task: %s\n' % (task))
+    ''' Model saved path: /train/model/mode.params.
+        If model exists, use the saved model
+        else create new model from model
+    '''
+    logging.info(' Start Training for Task: %s, with model: %s\n' % (task, model))
 
     # Initialize the net with pretrained model
-    pretrained_net = gluon.model_zoo.vision.get_model(model_name, pretrained=True)
+    finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
+    with finetune_net.name_scope():
+        finetune_net.output = nn.Dense(task_num_class)
 
-    finetune_net = gluon.model_zoo.vision.get_model(model_name, classes=task_num_class)
-    finetune_net.features = pretrained_net.features
-    finetune_net.output.initialize(init.Xavier(), ctx = ctx)
-    finetune_net.collect_params().reset_ctx(ctx)
+    parameter_file = os.path.join(train_dir, task+args.suffix+'.params')
+
+    if os.path.exists(parameter_file) and os.path.isfile(parameter_file) and os.path.getsize(parameter_file)>0:
+        logging.info("Load parameters from saved model: {}".format(parameter_file))
+        finetune_net = gluon.model_zoo.vision.get_model(model)
+        with finetune_net.name_scope():
+            finetune_net.output = nn.Dense(task_num_class)
+        finetune_net.load_params(parameter_file, ctx=ctx)
+    else:
+        finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
+        with finetune_net.name_scope():
+            finetune_net.output = nn.Dense(task_num_class)
+        finetune_net.output.initialize(init.Xavier(), ctx=ctx)
+        finetune_net.collect_params().reset_ctx(ctx)
+
     finetune_net.hybridize()
 
     # Define DataLoader
@@ -161,6 +210,7 @@ def train():
     prog = Progbar(target=num_batch)
 
     # Start Training
+    no_improvement_cnt = 0 # early stopping
     for epoch in range(epochs):
         if epoch == lr_steps[lr_counter]:
             trainer.set_learning_rate(trainer.learning_rate*lr_factor)
@@ -192,6 +242,21 @@ def train():
             # progressbar(i, num_batch-1)
             prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
+            # DEBUG only
+            if args.log_interval > 0 and (i+1) % args.log_interval == 0:
+                val_acc = 1.0
+                ''' save params if there is improvment
+                    early stop if no improvment for more than 2 epoches
+                '''
+                if args.best_val_acc < val_acc:
+                    finetune_net.save_params(parameter_file)
+                    no_improvement_cnt=0
+                elif args.best_val_acc > val_acc:
+                    no_improvement_cnt += 1;
+                    if no_improvement_cnt == 3:
+                        logging.info(20*'='+"Early stopping"+20*'=')
+                        return (finetune_net)
+
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
         train_loss /= num_batch
@@ -201,43 +266,26 @@ def train():
         logging.info('[Epoch %d] Train-acc: %.3f, mAP: %.3f, loss: %.3f | Val-acc: %.3f, mAP: %.3f, loss: %.3f | time: %.1f' %
                  (epoch, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time() - tic))
 
+        ''' save params if there is improvment
+            early stop if no improvment for more than 2 epoches
+        '''
+        if args.best_val_acc < val_acc:
+            finetune_net.save_params(parameter_file)
+            no_improvement_cnt=0
+        elif args.best_val_acc > val_acc:
+            no_improvement_cnt += 1;
+            if no_improvement_cnt == 3:
+                logging.info(20*'='+"Early stopping"+20*'=')
+                return (finetune_net)
+
     logging.info('\n')
     return (finetune_net)
 
-def predict(task):
-    logging.info('Training Finished. Starting Prediction.\n')
-    f_out = open('submission/%s.csv'%(task), 'w')
-    with open('data/rank/Tests/question.csv', 'r') as f_in:
-        lines = f_in.readlines()
-    tokens = [l.rstrip().split(',') for l in lines]
-    task_tokens = [t for t in tokens if t[1] == task]
-    n = len(task_tokens)
-    cnt = 0
-    for path, task, _ in task_tokens:
-        img_path = os.path.join('data/rank', path)
-        with open(img_path, 'rb') as f:
-            img = image.imdecode(f.read())
-        data = transform_predict(img)
-        out = net(data.as_in_context(mx.gpu(0)))
-        out = nd.SoftmaxActivation(out).mean(axis=0)
-
-        pred_out = ';'.join(["%.8f"%(o) for o in out.asnumpy().tolist()])
-        line_out = ','.join([path, task, pred_out])
-        f_out.write(line_out + '\n')
-        cnt += 1
-        progressbar(cnt, n)
-    f_out.close()
 
 
 if __name__ == "__main__":
     # Preparation
     args = parse_args()
-
-    logging.basicConfig(level=logging.INFO,
-                        handlers = [
-                            logging.StreamHandler(),
-                            logging.FileHandler('training.log')
-                        ])
 
     task_list = {
         'collar_design_labels': 5,
@@ -249,10 +297,19 @@ if __name__ == "__main__":
         'pant_length_labels': 6,
         'sleeve_length_labels': 9
     }
+
     task = args.task
     task_num_class = task_list[task]
 
-    model_name = args.model
+    model = args.model
+    # path to save model
+    train_dir = mkdir_if_not_exist(['train', task+args.suffix])
+
+    logging.basicConfig(level=logging.INFO,
+                        handlers = [
+                            logging.StreamHandler(),
+                            logging.FileHandler(os.path.join(train_dir, "log.log"))
+                        ])
 
     epochs = args.epochs
     lr = args.lr
