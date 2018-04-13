@@ -2,12 +2,17 @@
 
 ## On cluster
 ### Debug
-The `--num-gpus #` should be less than `--gres=gpu:#` aligned with batch size:  
+The `--num-gpus #` should be less than `--gres=gpu:#` aligned with batch size:
 * `srun -p interactive --gres=gpu:2 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 2 --num_workers 32 --epochs 1 --batch-size 8`
 * `srun -p interactive --gres=gpu:4 --pty python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 4 --num_workers 32 --epochs 1 --batch-size 45`
 
 ### Sbatch
+`sbatch --job-name=xxx yyyy.sh`
+
 `python code/train_task.py --task skirt_length_labels --model resnet50_v2 --num-gpus 8 --num_workers 32 --epochs 40 --batch-size 45`
+
+### kill task
+`scancel job_id`
 
 ### copy data to cluster
 On cluster: `cp -ar /afs/inf.ed.ac.uk/user/<initial>/<username>/from/* /home/<username>/to`
