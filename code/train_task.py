@@ -39,8 +39,8 @@ def parse_args():
                         help='learning rate decay ratio')
     parser.add_argument('--lr-steps', default='10,20,30', type=str,
                         help='list of learning rate decay epochs as in str')
-    parser.add_argument('--best_val_acc', default=0.0, type=float,
-                        help='best validation accuracy at last run')
+    parser.add_argument('--best_val_loss', default=float("Inf"), type=float,
+                        help='best validation loss at last run')
     args = parser.parse_args()
     return args
 
@@ -242,20 +242,20 @@ def train():
             # progressbar(i, num_batch-1)
             prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
-            # DEBUG only
-            if args.log_interval > 0 and (i+1) % args.log_interval == 0:
-                val_acc = 1.0
-                ''' save params if there is improvment
-                    early stop if no improvment for more than 2 epoches
-                '''
-                if args.best_val_acc < val_acc:
-                    finetune_net.save_params(parameter_file)
-                    no_improvement_cnt=0
-                elif args.best_val_acc > val_acc:
-                    no_improvement_cnt += 1;
-                    if no_improvement_cnt == 3:
-                        logging.info(20*'='+"Early stopping"+20*'=')
-                        return (finetune_net)
+            # # DEBUG only
+            # if args.log_interval > 0 and (i+1) % args.log_interval == 0:
+            #     val_acc = 1.0
+            #     ''' save params if there is improvment
+            #         early stop if no improvment for more than 2 epoches
+            #     '''
+            #     if args.best_val_loss < val_acc:
+            #         finetune_net.save_params(parameter_file)
+            #         no_improvement_cnt=0
+            #     elif args.best_val_loss > val_acc:
+            #         no_improvement_cnt += 1;
+            #         if no_improvement_cnt == 3:
+            #             logging.info(20*'='+"Early stopping"+20*'=')
+            #             return (finetune_net)
 
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
@@ -264,19 +264,20 @@ def train():
         val_acc, val_map, val_loss = validate(finetune_net, val_data, ctx)
 
         logging.info('[Epoch %d] Train-acc: %.3f, mAP: %.3f, loss: %.3f | Val-acc: %.3f, mAP: %.3f, loss: %.3f | time: %.1f' %
-                 (epoch, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time() - tic))
+                 (epoch+1, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time() - tic))
 
         ''' save params if there is improvment
             early stop if no improvment for more than 2 epoches
         '''
-        if args.best_val_acc < val_acc:
+        if args.best_val_loss > val_loss:
             finetune_net.save_params(parameter_file)
             no_improvement_cnt=0
-        elif args.best_val_acc > val_acc:
+            args.best_val_loss = val_loss
+        elif args.best_val_loss < val_loss:
             no_improvement_cnt += 1;
             if no_improvement_cnt == 3:
                 logging.info(20*'='+"Early stopping"+20*'=')
-                return (finetune_net)
+                break
 
     logging.info('\n')
     return (finetune_net)
