@@ -86,7 +86,9 @@ def transform_train(data, label):
     auglist = image.CreateAugmenter(data_shape=(3, 224, 224), resize=256,
                                     rand_crop=True, rand_mirror=True,
                                     mean = np.array([0.485, 0.456, 0.406]),
-                                    std = np.array([0.229, 0.224, 0.225]))
+                                    std = np.array([0.229, 0.224, 0.225]),
+                                    brightness=0.5, contrast=0.5, saturation=0.5,
+                                    hue=0.5, pca_noise=0.5, rand_gray=0.1)
     for aug in auglist:
         im = aug(im)
     im = nd.transpose(im, (2,0,1))
