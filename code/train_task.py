@@ -35,12 +35,12 @@ def parse_args():
                         help='momentum')
     parser.add_argument('--weight-decay', '--wd', dest='wd', default=1e-4, type=float,
                         help='weight decay (default: 1e-4)')
-    parser.add_argument('--lr-factor', default=0.75, type=float,
+    parser.add_argument('--lr_factor', default=0.75, type=float,
                         help='learning rate decay ratio')
-    parser.add_argument('--lr-steps', default='10,20,30', type=str,
+    parser.add_argument('--lr_steps', default='10,20,30,40,50,60,70,80,90', type=str,
                         help='list of learning rate decay epochs as in str')
-    parser.add_argument('--best_val_loss', default=float("Inf"), type=float,
-                        help='best validation loss at last run')
+    parser.add_argument('--early_stop', default=0, type=float,
+                        help='the mAP is used for early stopping')
     args = parser.parse_args()
     return args
 
@@ -87,8 +87,13 @@ def transform_train(data, label):
                                     rand_crop=True, rand_mirror=True,
                                     mean = np.array([0.485, 0.456, 0.406]),
                                     std = np.array([0.229, 0.224, 0.225]),
-                                    brightness=0.5, contrast=0.5, saturation=0.5,
-                                    hue=0.5, pca_noise=0.5, rand_gray=0.1)
+                                    brightness=0.95,
+                                    hue=0.95,
+                                    contrast=0.25,
+                                    saturation=0.95,
+                                    pca_noise=0.125,
+                                    rand_gray=0.01
+                                    )
     for aug in auglist:
         im = aug(im)
     im = nd.transpose(im, (2,0,1))
@@ -118,6 +123,9 @@ def progressbar(i, n, bar_len=40):
     print('[%s] %s%s' % (prog_bar, percents, '%'), end = '\r')
 
 def validate(net, val_data, ctx):
+    '''Compute the mean of APs of all attribute dimensions to obtain mAP = AP / AP_cnt.
+       mAP is used as the ultimate ranking score for the apparel attribute recognition contest.
+    '''
     metric = mx.metric.Accuracy()
     L = gluon.loss.SoftmaxCrossEntropyLoss()
     AP = 0.
@@ -138,7 +146,8 @@ def validate(net, val_data, ctx):
 
 def predict(task):
     logging.info('Training Finished. Starting Prediction.\n')
-    f_out = open('submission/%s.csv'%(task), 'w')
+    # f_out = open('submission/%s.csv'%(task), 'w')
+    f_out = open(os.path.join(train_dir, task+args.suffix+'.csv'), 'w')
     with open('data/rank/Tests/question.csv', 'r') as f_in:
         lines = f_in.readlines()
     tokens = [l.rstrip().split(',') for l in lines]
@@ -165,8 +174,6 @@ def train():
         If model exists, use the saved model
         else create new model from model
     '''
-    logging.info(' Start Training for Task: %s, with model: %s\n' % (task, model))
-
     # Initialize the net with pretrained model
     finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
     with finetune_net.name_scope():
@@ -187,6 +194,7 @@ def train():
         finetune_net.output.initialize(init.Xavier(), ctx=ctx)
         finetune_net.collect_params().reset_ctx(ctx)
 
+    print("Finetune net: {}".format(finetune_net.features))
     finetune_net.hybridize()
 
     # Define DataLoader
@@ -212,6 +220,11 @@ def train():
     prog = Progbar(target=num_batch)
 
     # Start Training
+    logging.info('==== Start Training for Task: %s, with model: %s on %s images ====\n' % (task, model,
+                 len(gluon.data.vision.ImageFolderDataset(
+                     os.path.join('data/train_valid', task, 'train'),
+                     transform=transform_train)) ))
+
     no_improvement_cnt = 0 # early stopping
     for epoch in range(epochs):
         if epoch == lr_steps[lr_counter]:
@@ -244,42 +257,29 @@ def train():
             # progressbar(i, num_batch-1)
             prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
-            # # DEBUG only
-            # if args.log_interval > 0 and (i+1) % args.log_interval == 0:
-            #     val_acc = 1.0
-            #     ''' save params if there is improvment
-            #         early stop if no improvment for more than 2 epoches
-            #     '''
-            #     if args.best_val_loss < val_acc:
-            #         finetune_net.save_params(parameter_file)
-            #         no_improvement_cnt=0
-            #     elif args.best_val_loss > val_acc:
-            #         no_improvement_cnt += 1;
-            #         if no_improvement_cnt == 3:
-            #             logging.info(20*'='+"Early stopping"+20*'=')
-            #             return (finetune_net)
-
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
         train_loss /= num_batch
 
         val_acc, val_map, val_loss = validate(finetune_net, val_data, ctx)
 
-        logging.info('[Epoch %d] Train-acc: %.3f, mAP: %.3f, loss: %.3f | Val-acc: %.3f, mAP: %.3f, loss: %.3f | time: %.1f' %
+        logging.info('[Epoch %02d] Train-acc: %.3f, mAP: %.3f, loss: %.3f | Val-acc: %.3f, mAP: %.3f, loss: %.3f | time: %.1f' %
                  (epoch+1, train_acc, train_map, train_loss, val_acc, val_map, val_loss, time() - tic))
 
         ''' save params if there is improvment
             early stop if no improvment for more than 2 epoches
         '''
-        if args.best_val_loss > val_loss:
+        if args.early_stop < val_map:
             finetune_net.save_params(parameter_file)
             no_improvement_cnt=0
-            args.best_val_loss = val_loss
-        elif args.best_val_loss < val_loss:
+        elif args.early_stop > val_map:
             no_improvement_cnt += 1;
-            if no_improvement_cnt == 3:
-                logging.info(20*'='+"Early stopping"+20*'=')
-                break
+
+        args.early_stop = val_map
+
+        if no_improvement_cnt == 2:
+            logging.info(20*'='+"Early stopping"+20*'=')
+            break
 
     logging.info('\n')
     return (finetune_net)
