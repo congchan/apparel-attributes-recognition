@@ -193,8 +193,16 @@ def train():
             finetune_net.output = nn.Dense(task_num_class)
         finetune_net.output.initialize(init.Xavier(), ctx=ctx)
         finetune_net.collect_params().reset_ctx(ctx)
+    
+    '''Fix a 3rd of the parameters, and scale down the rest of the fine tuning'''
+    fix_num_parameters = int(len(finetune_net.features)/3)
+    for i, parameters in enumerate(finetune_net.features.collect_params().items(), 1):
+        if i <= fix_num_parameters:
+            parameters[1].lr_mult = 0.0
+        else:
+            parameters[1].lr_mult = 0.1
 
-    print("Finetune net: {}".format(finetune_net.features))
+    print("Finetune net: {}".format(len(finetune_net.features)))
     finetune_net.hybridize()
 
     # Define DataLoader
@@ -217,7 +225,7 @@ def train():
     L = gluon.loss.SoftmaxCrossEntropyLoss()
     lr_counter = 0
     num_batch = len(train_data)
-    prog = Progbar(target=num_batch)
+    #prog = Progbar(target=num_batch)
 
     # Start Training
     logging.info('==== Start Training for Task: %s, with model: %s on %s images ====\n' % (task, model,
@@ -254,8 +262,8 @@ def train():
             AP += ap
             AP_cnt += cnt
 
-            # progressbar(i, num_batch-1)
-            prog.update(i + 1, [("training loss", train_loss/(i + 1))])
+            progressbar(i, num_batch-1)
+            #prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
