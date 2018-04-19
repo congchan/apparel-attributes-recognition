@@ -197,12 +197,8 @@ def train():
     '''Fix a 3rd of the parameters, and scale down the rest of the fine tuning'''
     fix_num_parameters = int(len(finetune_net.features)/3)
     for i, parameters in enumerate(finetune_net.features.collect_params().items(), 1):
-        if i <= fix_num_parameters:
-            parameters[1].lr_mult = 0.0
-        else:
-            parameters[1].lr_mult = 0.1
-
-    print("Finetune net: {}".format(len(finetune_net.features)))
+        parameters[1].lr_mult = np.log(i)/np.log(len(finetune_net.features))
+        
     finetune_net.hybridize()
 
     # Define DataLoader
@@ -285,7 +281,7 @@ def train():
 
         args.early_stop = val_map
 
-        if no_improvement_cnt == 2:
+        if no_improvement_cnt == 3:
             logging.info(20*'='+"Early stopping"+20*'=')
             break
 
