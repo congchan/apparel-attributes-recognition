@@ -43,6 +43,8 @@ def parse_args():
                         help='the mAP is used for early stopping')
     parser.add_argument('--update_rule', default=0, type=int,
                         help='determine update rate of each layer parameters')
+    parser.add_argument('--test_only', default=0, type=int,
+                        help='only predict')
     args = parser.parse_args()
     return args
 
@@ -172,30 +174,6 @@ def predict(task):
     f_out.close()
 
 def train():
-    ''' Model saved path: /train/model/mode.params.
-        If model exists, use the saved model
-        else create new model from model
-    '''
-    # Initialize the net with pretrained model
-    finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
-    with finetune_net.name_scope():
-        finetune_net.output = nn.Dense(task_num_class)
-
-    parameter_file = os.path.join(train_dir, task+args.suffix+'.params')
-
-    if os.path.exists(parameter_file) and os.path.isfile(parameter_file) and os.path.getsize(parameter_file)>0:
-        logging.info("Load parameters from saved model: {}".format(parameter_file))
-        finetune_net = gluon.model_zoo.vision.get_model(model)
-        with finetune_net.name_scope():
-            finetune_net.output = nn.Dense(task_num_class)
-        finetune_net.load_params(parameter_file, ctx=ctx)
-    else:
-        finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
-        with finetune_net.name_scope():
-            finetune_net.output = nn.Dense(task_num_class)
-        finetune_net.output.initialize(init.Xavier(), ctx=ctx)
-        finetune_net.collect_params().reset_ctx(ctx)
-    
     '''Determine how to update each layers parameters'''
     num_layers = len(finetune_net.features.collect_params().items())
     print("||= Parameters update on each layers: ")
@@ -208,12 +186,12 @@ def train():
             parameters[1].lr_mult = np.exp(i-num_layers)
         elif args.update_rule == 3:
             # normalizaiton between [0, 1]
-            parameters[1].lr_mult = 1.0 * (i - 1) / (num_layers -1) 
+            parameters[1].lr_mult = 1.0 * (i - 1) / (num_layers -1)
         else:
             # freeze all
             parameters[1].lr_mult = 0
         print("{} {}: {}".format(i, parameters[0], parameters[1].lr_mult))
-        
+
     finetune_net.hybridize()
 
     # Define DataLoader
@@ -350,7 +328,30 @@ if __name__ == "__main__":
     logging.info('Use context {}'.format(ctx))
     batch_size = batch_size * max(num_gpus, 1)
 
+    ''' Model saved path: /train/model/mode.params.
+        If model exists, use the saved model
+        else create new model from model
+    '''
+    # Initialize the net with pretrained model
+    finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
+    with finetune_net.name_scope():
+        finetune_net.output = nn.Dense(task_num_class)
 
+    parameter_file = os.path.join(train_dir, task+args.suffix+'.params')
 
-    net = train()
+    if os.path.exists(parameter_file) and os.path.isfile(parameter_file) and os.path.getsize(parameter_file)>0:
+        logging.info("Load parameters from saved model: {}".format(parameter_file))
+        finetune_net = gluon.model_zoo.vision.get_model(model)
+        with finetune_net.name_scope():
+            finetune_net.output = nn.Dense(task_num_class)
+        finetune_net.load_params(parameter_file, ctx=ctx)
+    else:
+        finetune_net = gluon.model_zoo.vision.get_model(model, pretrained=True)
+        with finetune_net.name_scope():
+            finetune_net.output = nn.Dense(task_num_class)
+        finetune_net.output.initialize(init.Xavier(), ctx=ctx)
+        finetune_net.collect_params().reset_ctx(ctx)
+
+    if not test_only:
+        net = train()
     predict(task)
