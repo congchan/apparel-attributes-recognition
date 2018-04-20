@@ -27,7 +27,7 @@ def parse_args():
                         help='number of training epochs')
     parser.add_argument('--log_interval', default=0, type=int,
                         help='log every # batches')
-    parser.add_argument('-b', '--batch-size', default=64, type=int,
+    parser.add_argument('-b', '--batch-size', default=40, type=int,
                         help='mini-batch size')
     parser.add_argument('--lr', '--learning-rate', default=0.001, type=float,
                         help='initial learning rate')
@@ -41,6 +41,8 @@ def parse_args():
                         help='list of learning rate decay epochs as in str')
     parser.add_argument('--early_stop', default=0, type=float,
                         help='the mAP is used for early stopping')
+    parser.add_argument('--update_rule', default=0, type=int,
+                        help='determine update rate of each layer parameters')
     args = parser.parse_args()
     return args
 
@@ -194,10 +196,23 @@ def train():
         finetune_net.output.initialize(init.Xavier(), ctx=ctx)
         finetune_net.collect_params().reset_ctx(ctx)
     
-    '''Fix a 3rd of the parameters, and scale down the rest of the fine tuning'''
-    fix_num_parameters = int(len(finetune_net.features)/3)
+    '''Determine how to update each layers parameters'''
+    num_layers = len(finetune_net.features.collect_params().items())
+    print("||= Parameters update on each layers: ")
     for i, parameters in enumerate(finetune_net.features.collect_params().items(), 1):
-        parameters[1].lr_mult = np.log(i)/np.log(len(finetune_net.features))
+        if args.update_rule == 1:
+            # 0, 0.2, 0.4, 0.5 ....0.9, 0.9, 1
+            parameters[1].lr_mult = 1.0 * np.log(i) / np.log(num_layers)
+        elif args.update_rule == 2:
+            # 0, 0, 0, 0, 0, 0.0001, ... 0.01, 0.05, 0.1, 0.5, 1
+            parameters[1].lr_mult = np.exp(i-num_layers)
+        elif args.update_rule == 3:
+            # normalizaiton between [0, 1]
+            parameters[1].lr_mult = 1.0 * (i - 1) / (num_layers -1) 
+        else:
+            # freeze all
+            parameters[1].lr_mult = 0
+        print("{} {}: {}".format(i, parameters[0], parameters[1].lr_mult))
         
     finetune_net.hybridize()
 
@@ -221,7 +236,7 @@ def train():
     L = gluon.loss.SoftmaxCrossEntropyLoss()
     lr_counter = 0
     num_batch = len(train_data)
-    #prog = Progbar(target=num_batch)
+    prog = Progbar(target=num_batch)
 
     # Start Training
     logging.info('==== Start Training for Task: %s, with model: %s on %s images ====\n' % (task, model,
@@ -258,8 +273,8 @@ def train():
             AP += ap
             AP_cnt += cnt
 
-            progressbar(i, num_batch-1)
-            #prog.update(i + 1, [("training loss", train_loss/(i + 1))])
+            #progressbar(i, num_batch-1)
+            prog.update(i + 1, [("training loss", train_loss/(i + 1))])
 
         train_map = AP / AP_cnt
         _, train_acc = metric.get()
@@ -317,6 +332,8 @@ if __name__ == "__main__":
                             logging.StreamHandler(),
                             logging.FileHandler(os.path.join(train_dir, "log.log"))
                         ])
+
+    logging.info("||== Setting: {} ==||".format(args))
 
     epochs = args.epochs
     lr = args.lr
