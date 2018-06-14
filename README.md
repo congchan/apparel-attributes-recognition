@@ -1,7 +1,7 @@
 # FashionAI-Attributes
 [阿里天池竞赛——服饰属性标签识别](https://tianchi.aliyun.com/competition/information.htm?spm=5176.100067.5678.2.505c3a26Oet3cf&raceId=231649)`gluon`代码。
 
-## 当前benchmark代码
+当前benchmark代码基于 https://github.com/hetong007/Gluon-FashionAI-Attributes 改进
 - 在初赛数据集上能达到大约**0.97**的mAP与**0.88**的准确率，同时还有很大的提升空间。
 - 在4块Tesla V100以及32核CPU的 AWS p3.8xlarge 机器上的总运行时间约为2.5小时。
 
